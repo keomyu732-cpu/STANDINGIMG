@@ -144,8 +144,13 @@ input:focus,select:focus{border-color:#888}
   <div class="row" style="margin-top:8px">
     <div>
       <label>최대 행 수</label>
-      <input type="number" id="omaxrows" value="4" min="1" max="20" style="width:58px">
+      <input type="number" id="omaxrows" value="4" min="1" max="50" style="width:58px">
       <p class="field-note">초과 시 열 자동 추가</p>
+    </div>
+    <div>
+      <label>최대 열 수</label>
+      <input type="number" id="omaxcols" value="10" min="1" max="50" style="width:58px">
+      <p class="field-note">초과 시 행 자동 추가</p>
     </div>
     <div>
       <label>열 수 미리보기</label>
@@ -252,13 +257,14 @@ let dragState=DS.NONE,dragStart={x:0,y:0},selSnap={};
 
 function updateColsPreview(){
   const maxRows=Math.max(1,parseInt($('omaxrows').value)||4);
+  const maxCols=Math.max(1,parseInt($('omaxcols').value)||10);
   const total=queue.length;
   if(!total){$('cols-preview').textContent='큐 비어있음';return;}
-  const cols=Math.ceil(total/maxRows);
-  const rows=Math.ceil(total/cols);
+  const {cols,rows}=calcGrid(total,maxRows,maxCols);
   $('cols-preview').textContent=`${cols}열 × ${rows}행`;
 }
 $('omaxrows').oninput=updateColsPreview;
+$('omaxcols').oninput=updateColsPreview;
 
 $('fi').onchange=e=>loadFiles([...e.target.files]);
 const dz=$('dz');
@@ -445,7 +451,16 @@ $('bg-c').oninput=e=>{bgColor=e.target.value;document.querySelectorAll('.sw[data
 document.querySelectorAll('.sw[data-g="lc"]').forEach(s=>{s.onclick=()=>{document.querySelectorAll('.sw[data-g="lc"]').forEach(x=>x.classList.remove('sel'));s.classList.add('sel');lcColor=s.dataset.c;$('lc-c').value=lcColor}});
 $('lc-c').oninput=e=>{lcColor=e.target.value;document.querySelectorAll('.sw[data-g="lc"]').forEach(x=>x.classList.remove('sel'))};
 
-// ── 셀 내 라벨 그리기 ──
+// ── 그리드 계산: maxRows 초과 시 열 추가, maxCols 초과 시 행 추가 ──
+function calcGrid(total, maxRows, maxCols){
+  // 기본: maxRows 기준으로 열 수 결정
+  let cols=Math.ceil(total/maxRows);
+  // 열이 maxCols 초과하면 maxCols로 제한 → 행이 늘어남
+  cols=Math.min(cols, maxCols);
+  cols=Math.max(1, cols);
+  const rows=Math.ceil(total/cols);
+  return {cols, rows};
+}
 function drawLabel(ctx,label,x,y,cell,lpos,lstyle,fontSize){
   if(!label||lpos==='none')return;
   const MARGIN=10;
@@ -534,8 +549,8 @@ function buildSheet(){
   const fontSize=Math.max(8,parseInt($('ofontsize').value)||15);
 
   const total=queue.length;
-  const cols=Math.ceil(total/maxRows);
-  const rows=Math.ceil(total/cols);
+  const maxCols=Math.max(1,parseInt($('omaxcols').value)||10);
+  const {cols,rows}=calcGrid(total,maxRows,maxCols);
 
   const PAD=18;
   const vnamefont=Math.max(8,parseInt($('ovnamefont').value)||28);
