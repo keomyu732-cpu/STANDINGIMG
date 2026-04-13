@@ -66,9 +66,12 @@ input:focus,select:focus{border-color:#888}
 <body>
 <div class="wrap">
 
-<div class="card">
-  <h1>스탠딩 컨닝페이퍼 메이커</h1>
-  <p style="font-size:11px;color:#aaa;margin-top:2px">5분컷으로 컨페를 만들자</p>
+<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+  <div>
+    <h1>스탠딩 컨닝페이퍼 메이커</h1>
+    <p style="font-size:11px;color:#aaa;margin-top:2px">5분컷으로 컨페를 만들자</p>
+  </div>
+  <button class="btn" style="font-size:12px;white-space:nowrap;flex-shrink:0" onclick="resetAll()">↺ 전체 리셋</button>
 </div>
 
 <div class="card">
@@ -92,6 +95,7 @@ input:focus,select:focus{border-color:#888}
       <p class="note">드래그 → 영역 선택 &nbsp;|&nbsp; 영역 안 드래그 → 이동</p>
       <div class="apply-bar">
         <button class="btn btn-s" id="apply-all-btn" onclick="applyToAll()" style="display:none;font-size:11px">이 범위 전체 적용</button>
+        <button class="btn btn-s" id="apply-last-btn" onclick="applyLastSel()" style="display:none;font-size:11px">마지막 범위 재적용</button>
         <span class="size-hint" id="size-hint"></span>
       </div>
     </div>
@@ -235,8 +239,12 @@ input:focus,select:focus{border-color:#888}
 
 <div id="final-out" class="card">
   <p class="sec">완성</p>
-  <p class="note">우클릭 → 이미지를 다른 이름으로 저장 &nbsp;|&nbsp; 또는 아래 버튼</p>
-  <button class="btn btn-p" style="margin-top:6px" onclick="downloadSheet()">PNG 다운로드</button>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+    <button class="btn btn-p" onclick="downloadSheet(1)">PNG 저장 (기본)</button>
+    <button class="btn btn-p" onclick="downloadSheet(2)">PNG 저장 (고화질 2×)</button>
+    <button class="btn btn-p" onclick="downloadSheet(4)">PNG 저장 (초고화질 4×)</button>
+    <span style="font-size:10px;color:#bbb">4× 기준 약 3000px+</span>
+  </div>
   <canvas id="final-canvas"></canvas>
 </div>
 <p style="text-align:center;font-size:11px;color:#bbb;padding:8px 0 4px">오류 및 건의사항은 <a href="https://twitter.com/muji990371" style="color:#aaa">@muji990371</a> 로 부탁합니다!</p>
@@ -251,6 +259,7 @@ const $=id=>document.getElementById(id);
 let images=[],curIdx=0,queue=[];
 let bgColor='#ffffff',lcColor='#111111';
 let sel={x:0,y:0,w:0,h:0,valid:false};
+let lastSel=null; // 마지막으로 확정된 sel 저장
 let imgScale={x:1,y:1};
 const DS={NONE:'none',DRAW:'draw',MOVE:'move'};
 let dragState=DS.NONE,dragStart={x:0,y:0},selSnap={};
@@ -390,12 +399,14 @@ function applyToAll(){
   if(!sel.valid)return;
   const cur=images[curIdx];
   images.forEach((d,i)=>{
-    if(i===curIdx||d.w!==cur.w||d.h!==cur.h)return;
+    if(d.w!==cur.w||d.h!==cur.h)return;
     const cv=document.createElement('canvas');
     cv.width=sel.w*imgScale.x;cv.height=sel.h*imgScale.y;
     cv.getContext('2d').drawImage(d.img,sel.x*imgScale.x,sel.y*imgScale.y,cv.width,cv.height,0,0,cv.width,cv.height);
     queue.push({canvas:cv,label:''});
   });
+  lastSel={...sel, scaleX:imgScale.x, scaleY:imgScale.y, srcW:cur.w, srcH:cur.h};
+  $('apply-last-btn').style.display='block';
   renderQ();updateColsPreview();
 }
 
@@ -406,8 +417,23 @@ function addQ(){
   cv.width=sel.w*imgScale.x;cv.height=sel.h*imgScale.y;
   cv.getContext('2d').drawImage(img,sel.x*imgScale.x,sel.y*imgScale.y,cv.width,cv.height,0,0,cv.width,cv.height);
   queue.push({canvas:cv,label:$('face-lbl').value||''});
+  lastSel={...sel, scaleX:imgScale.x, scaleY:imgScale.y, srcW:images[curIdx].w, srcH:images[curIdx].h};
+  $('apply-last-btn').style.display='block';
   renderQ();updateColsPreview();$('face-lbl').value='';
 }
+
+function applyLastSel(){
+  if(!lastSel){alert('먼저 범위를 한 번 지정해서 큐에 추가하세요!');return;}
+  const{img,w,h}=images[curIdx];
+  // 현재 이미지와 저장된 sel의 원본 사이즈가 같아야 좌표 그대로 적용 가능
+  if(w!==lastSel.srcW||h!==lastSel.srcH){
+    if(!confirm(`저장된 범위는 ${lastSel.srcW}×${lastSel.srcH}px 이미지 기준이에요.\n현재 이미지(${w}×${h}px)에 강제 적용할까요?`))return;
+  }
+  // 현재 imgScale 기준으로 sel 복원
+  sel={x:lastSel.x, y:lastSel.y, w:lastSel.w, h:lastSel.h, valid:true};
+  drawOv();updPrev();updateApplyBar();
+}
+
 function nextImg(){if(curIdx<images.length-1)openEditor(curIdx+1);}
 
 let dragSrc=null;
@@ -423,16 +449,21 @@ function renderQ(){
     const s=90/Math.max(item.canvas.width,item.canvas.height);
     mini.width=item.canvas.width*s;mini.height=item.canvas.height*s;
     mini.style.width='100%';mini.style.aspectRatio='1';
-    mini.getContext('2d').drawImage(item.canvas,0,0,mini.width,mini.height);
+    drawMini(mini,item);
     const num=document.createElement('div');num.className='q-num';num.textContent=i+1;
     const del=document.createElement('div');del.className='q-del';del.textContent='×';
     del.onclick=e=>{e.stopPropagation();queue.splice(i,1);renderQ()};
     const zoom=document.createElement('div');zoom.className='q-zoom';zoom.textContent='🔍';
-    zoom.onclick=e=>{e.stopPropagation();openZoom(item.canvas)};
+    zoom.onclick=e=>{e.stopPropagation();openZoom(item)};
+    // 실루엣 토글
+    const sil=document.createElement('div');
+    sil.style.cssText='position:absolute;bottom:22px;right:3px;width:18px;height:18px;border-radius:50%;background:'+(item.silhouette?'rgba(0,0,0,0.75)':'rgba(0,0,0,0.25)')+';color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;font-size:10px';
+    sil.textContent='◼';sil.title='실루엣 처리';
+    sil.onclick=e=>{e.stopPropagation();queue[i].silhouette=!queue[i].silhouette;renderQ()};
     const ld=document.createElement('div');ld.className='q-lbl';
     const inp=document.createElement('input');inp.type='text';inp.value=item.label;inp.placeholder='라벨';
     inp.oninput=()=>{queue[i].label=inp.value};inp.onclick=e=>e.stopPropagation();
-    ld.appendChild(inp);cell.append(mini,num,del,zoom,ld);
+    ld.appendChild(inp);cell.append(mini,num,del,zoom,sil,ld);
     cell.addEventListener('dragstart',e=>{dragSrc=i;setTimeout(()=>cell.classList.add('dragging'),0);e.dataTransfer.effectAllowed='move'});
     cell.addEventListener('dragend',()=>{cell.classList.remove('dragging');document.querySelectorAll('.q-item').forEach(c=>c.classList.remove('drag-over'))});
     cell.addEventListener('dragover',e=>{e.preventDefault();document.querySelectorAll('.q-item').forEach(c=>c.classList.remove('drag-over'));cell.classList.add('drag-over')});
@@ -441,8 +472,26 @@ function renderQ(){
     g.appendChild(cell);
   });
 }
+
+// 미니 썸네일 그리기 (실루엣 반영)
+function drawMini(canvas, item){
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(item.canvas,0,0,canvas.width,canvas.height);
+  if(item.silhouette){
+    ctx.globalCompositeOperation='source-atop';
+    ctx.fillStyle='#1a1a1a';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.globalCompositeOperation='source-over';
+  }
+}
 function clearQ(){queue=[];renderQ();}
-function openZoom(cv){$('zoom-img').src=cv.toDataURL();$('zoom-modal').classList.add('open');}
+function openZoom(item){
+  const cv=document.createElement('canvas');
+  cv.width=item.canvas.width;cv.height=item.canvas.height;
+  drawMini(cv,item);
+  $('zoom-img').src=cv.toDataURL();$('zoom-modal').classList.add('open');
+}
 function closeZoom(){$('zoom-modal').classList.remove('open');}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeZoom()});
 
@@ -535,39 +584,49 @@ function drawVerticalText(ctx, text, cx, topY, fontSize, fontStyle, color, alpha
 }
 
 // ── 시트 생성 ──
-function buildSheet(){
+function buildSheet(dlScale){
+  dlScale=dlScale||1; // 1=미리보기, 2/4=저장용
   if(!queue.length){alert('큐가 비어있어요!');return;}
-  const cell=Math.max(80,parseInt($('ocell').value)||260);
-  const gap=Math.max(0,parseInt($('ogap').value)||10);
-  const rad=Math.max(0,parseInt($('orad').value)||14);
+  const cellBase=Math.max(80,parseInt($('ocell').value)||260);
+  const gapBase=Math.max(0,parseInt($('ogap').value)||10);
+  const radBase=Math.max(0,parseInt($('orad').value)||14);
+  const cell=cellBase*dlScale;
+  const gap=gapBase*dlScale;
+  const rad=radBase*dlScale;
   const maxRows=Math.max(1,parseInt($('omaxrows').value)||4);
   const lpos=$('lpos').value;
   const lstyle=$('lstyle').value;
   const vtxt=$('vtxt').value;
   const cname=$('cname').value.trim();
   const csub=$('csub').value.trim();
-  const fontSize=Math.max(8,parseInt($('ofontsize').value)||15);
+  const fontSize=Math.max(8,parseInt($('ofontsize').value)||15)*dlScale;
 
   const total=queue.length;
   const maxCols=Math.max(1,parseInt($('omaxcols').value)||10);
   const {cols,rows}=calcGrid(total,maxRows,maxCols);
 
-  const PAD=18;
-  const vnamefont=Math.max(8,parseInt($('ovnamefont').value)||28);
-  const vsubfont=Math.max(6,parseInt($('ovsubfont').value)||14);
-  const vpadding=Math.max(0,parseInt($('ovpadding').value)||18);
+  const PAD=18*dlScale;
+  const vnamefont=Math.max(8,parseInt($('ovnamefont').value)||28)*dlScale;
+  const vsubfont=Math.max(6,parseInt($('ovsubfont').value)||14)*dlScale;
+  const vpadding=Math.max(0,parseInt($('ovpadding').value)||18)*dlScale;
 
-  // 세로쓰기 열 너비: 글자 한 칸 = 폰트크기, 열마다 여백
   let VPAD=0;
   if(vtxt==='name') VPAD=vnamefont+vpadding;
   else if(vtxt==='sub') VPAD=vsubfont+vpadding;
-  else if(vtxt==='both') VPAD=vnamefont+vsubfont+vpadding+6;
+  else if(vtxt==='both') VPAD=vnamefont+vsubfont+vpadding+6*dlScale;
 
   const gridH=rows*cell+(rows-1)*gap;
   const W=VPAD+PAD+cols*cell+(cols-1)*gap+PAD;
   const H=PAD+gridH+PAD;
 
-  const fc=$('final-canvas');fc.width=W;fc.height=H;
+  // dlScale=1: 화면 미리보기용, 그 외: 별도 캔버스에 그려 바로 저장
+  let fc;
+  if(dlScale===1){
+    fc=$('final-canvas');
+  } else {
+    fc=document.createElement('canvas');
+  }
+  fc.width=W;fc.height=H;
   const ctx=fc.getContext('2d');
   ctx.fillStyle=bgColor;ctx.fillRect(0,0,W,H);
 
@@ -599,7 +658,16 @@ function buildSheet(){
       ctx.lineTo(x,y+rad);ctx.quadraticCurveTo(x,y,x+rad,y);
       ctx.closePath();ctx.clip();
     }
-    ctx.drawImage(item.canvas,x,y,cell,cell);
+    if(item.silhouette){
+      const tmp=document.createElement('canvas');tmp.width=cell;tmp.height=cell;
+      const tc=tmp.getContext('2d');
+      tc.drawImage(item.canvas,0,0,cell,cell);
+      tc.globalCompositeOperation='source-atop';
+      tc.fillStyle='#1a1a1a';tc.fillRect(0,0,cell,cell);
+      ctx.drawImage(tmp,x,y);
+    } else {
+      ctx.drawImage(item.canvas,x,y,cell,cell);
+    }
     if(item.label&&lpos!=='none'){
       drawLabel(ctx,item.label,x,y,cell,lpos,lstyle,fontSize);
     }
@@ -608,14 +676,36 @@ function buildSheet(){
 
 
 
-  $('final-out').style.display='block';
-  $('final-out').scrollIntoView({behavior:'smooth'});
+  if(dlScale===1){
+    $('final-out').style.display='block';
+    $('final-out').scrollIntoView({behavior:'smooth'});
+  } else {
+    // 바로 다운로드
+    const a=document.createElement('a');
+    a.download=`confe_sheet_${dlScale}x.png`;
+    a.href=fc.toDataURL('image/png');
+    a.click();
+  }
 }
 
-function downloadSheet(){
-  const a=document.createElement('a');
-  a.download='confe_sheet.png';
-  a.href=$('final-canvas').toDataURL('image/png');a.click();
+function downloadSheet(scale){
+  scale=scale||1;
+  buildSheet(scale);
+}
+
+function resetAll(){
+  if(!confirm('전체 초기화하시겠어요?\n업로드한 이미지와 큐가 모두 삭제됩니다.'))return;
+  images=[];curIdx=0;queue=[];
+  sel={x:0,y:0,w:0,h:0,valid:false};
+  $('thumbs').innerHTML='';
+  $('ed-card').style.display='none';
+  $('q-card').style.display='none';
+  $('cfg-card').style.display='none';
+  $('final-out').style.display='none';
+  $('q-grid').innerHTML='';
+  $('q-cnt').textContent='0';
+  $('cols-preview').textContent='—';
+  $('fi').value='';
 }
 </script>
 </body>
