@@ -211,6 +211,17 @@ input:focus,select:focus{border-color:#888}
       <input type="number" id="ofontsize" value="25" min="8" max="40" style="width:58px">
     </div>
     <div>
+      <label>실루엣 색상</label>
+      <div class="color-row">
+        <div class="sw sel" style="background:#1a1a1a" data-g="sc" data-c="#1a1a1a"></div>
+        <div class="sw" style="background:#ffffff" data-g="sc" data-c="#ffffff"></div>
+        <div class="sw" style="background:#cc3366" data-g="sc" data-c="#cc3366"></div>
+        <div class="sw" style="background:#3355cc" data-g="sc" data-c="#3355cc"></div>
+        <div class="sw" style="background:#226622" data-g="sc" data-c="#226622"></div>
+        <input type="color" id="sc-c" value="#1a1a1a" style="width:22px;height:22px;padding:0;border-radius:50%;border:1px solid #ddd;cursor:pointer">
+      </div>
+    </div>
+    <div>
       <label>좌측 세로 텍스트</label>
       <select id="vtxt">
         <option value="both">이름 + 서브타이틀</option>
@@ -257,9 +268,9 @@ input:focus,select:focus{border-color:#888}
 <script>
 const $=id=>document.getElementById(id);
 let images=[],curIdx=0,queue=[];
-let bgColor='#ffffff',lcColor='#111111';
+let bgColor='#ffffff',lcColor='#111111',silColor='#1a1a1a';
+let lastSel=null;
 let sel={x:0,y:0,w:0,h:0,valid:false};
-let lastSel=null; // 마지막으로 확정된 sel 저장
 let imgScale={x:1,y:1};
 const DS={NONE:'none',DRAW:'draw',MOVE:'move'};
 let dragState=DS.NONE,dragStart={x:0,y:0},selSnap={};
@@ -480,7 +491,7 @@ function drawMini(canvas, item){
   ctx.drawImage(item.canvas,0,0,canvas.width,canvas.height);
   if(item.silhouette){
     ctx.globalCompositeOperation='source-atop';
-    ctx.fillStyle='#1a1a1a';
+    ctx.fillStyle=silColor;
     ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.globalCompositeOperation='source-over';
   }
@@ -499,6 +510,8 @@ document.querySelectorAll('.sw[data-g="bg"]').forEach(s=>{s.onclick=()=>{documen
 $('bg-c').oninput=e=>{bgColor=e.target.value;document.querySelectorAll('.sw[data-g="bg"]').forEach(x=>x.classList.remove('sel'))};
 document.querySelectorAll('.sw[data-g="lc"]').forEach(s=>{s.onclick=()=>{document.querySelectorAll('.sw[data-g="lc"]').forEach(x=>x.classList.remove('sel'));s.classList.add('sel');lcColor=s.dataset.c;$('lc-c').value=lcColor}});
 $('lc-c').oninput=e=>{lcColor=e.target.value;document.querySelectorAll('.sw[data-g="lc"]').forEach(x=>x.classList.remove('sel'))};
+document.querySelectorAll('.sw[data-g="sc"]').forEach(s=>{s.onclick=()=>{document.querySelectorAll('.sw[data-g="sc"]').forEach(x=>x.classList.remove('sel'));s.classList.add('sel');silColor=s.dataset.c;$('sc-c').value=silColor}});
+$('sc-c').oninput=e=>{silColor=e.target.value;document.querySelectorAll('.sw[data-g="sc"]').forEach(x=>x.classList.remove('sel'))};
 
 // ── 그리드 계산: maxRows 초과 시 열 추가, maxCols 초과 시 행 추가 ──
 function calcGrid(total, maxRows, maxCols){
@@ -663,7 +676,7 @@ function buildSheet(dlScale){
       const tc=tmp.getContext('2d');
       tc.drawImage(item.canvas,0,0,cell,cell);
       tc.globalCompositeOperation='source-atop';
-      tc.fillStyle='#1a1a1a';tc.fillRect(0,0,cell,cell);
+      tc.fillStyle=silColor;tc.fillRect(0,0,cell,cell);
       ctx.drawImage(tmp,x,y);
     } else {
       ctx.drawImage(item.canvas,x,y,cell,cell);
