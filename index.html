@@ -234,15 +234,42 @@ input:focus,select:focus{border-color:#888}
   <div class="row" style="margin-top:8px">
     <div>
       <label>이름 폰트 크기(px)</label>
-      <input type="number" id="ovnamefont" value="28" min="8" max="120" style="width:65px">
+      <input type="number" id="ovnamefont" value="60" min="8" max="120" style="width:65px">
     </div>
     <div>
       <label>서브타이틀 폰트 크기(px)</label>
-      <input type="number" id="ovsubfont" value="14" min="6" max="60" style="width:65px">
+      <input type="number" id="ovsubfont" value="30" min="6" max="60" style="width:65px">
     </div>
     <div>
       <label>세로텍스트 여백(px)</label>
       <input type="number" id="ovpadding" value="18" min="0" max="80" style="width:58px">
+    </div>
+  </div>
+  <div style="margin-top:8px">
+    <label>대표 스탠딩 이미지 (선택) — 표정 그리드 왼쪽에 배치</label>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap">
+      <div class="drop-zone" style="padding:.7rem;font-size:11px;flex:1;min-width:120px" onclick="document.getElementById('standing-fi').click()">
+        클릭해서 스탠딩 이미지 업로드
+      </div>
+      <input type="file" id="standing-fi" accept="image/*" style="display:none">
+      <div style="position:relative;flex-shrink:0;display:none" id="standing-thumb-wrap">
+        <canvas id="standing-preview" style="width:60px;height:80px;border:1px solid #e8e5e0;border-radius:7px;background:#f5f5f2;display:block"></canvas>
+        <div onclick="clearStanding()" style="position:absolute;top:2px;right:2px;width:15px;height:15px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer">×</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap" id="standing-opts" style="display:none">
+      <div style="flex:1;min-width:100px">
+        <label>이미지 너비(px)</label>
+        <input type="number" id="ostandw" value="560" min="50" max="1000" style="width:68px">
+      </div>
+      <div style="flex:1;min-width:100px">
+        <label>세로 정렬</label>
+        <select id="ostandalign">
+          <option value="bottom">하단</option>
+          <option value="center">중앙</option>
+          <option value="top">상단</option>
+        </select>
+      </div>
     </div>
   </div>
   <button class="btn btn-p" style="margin-top:12px;width:100%;font-size:13px;padding:9px" onclick="buildSheet()">컨페 시트 생성 →</button>
@@ -270,6 +297,7 @@ const $=id=>document.getElementById(id);
 let images=[],curIdx=0,queue=[];
 let bgColor='#ffffff',lcColor='#111111',silColor='#1a1a1a';
 let lastSel=null;
+let standingImg=null;
 let sel={x:0,y:0,w:0,h:0,valid:false};
 let imgScale={x:1,y:1};
 const DS={NONE:'none',DRAW:'draw',MOVE:'move'};
@@ -286,11 +314,45 @@ function updateColsPreview(){
 $('omaxrows').oninput=updateColsPreview;
 $('omaxcols').oninput=updateColsPreview;
 
-$('fi').onchange=e=>loadFiles([...e.target.files]);
+$('fi').onchange=e=>{
+  const sorted=[...e.target.files].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'}));
+  loadFiles(sorted);
+};
+
+// 대표 스탠딩 이미지
+$('standing-fi').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      standingImg=img;
+      const prev=$('standing-preview');
+      const tw=$('standing-thumb-wrap');
+      const opts=$('standing-opts');
+      prev.width=img.width;prev.height=img.height;
+      prev.getContext('2d').drawImage(img,0,0);
+      tw.style.display='flex';
+      opts.style.display='flex';
+    };
+    img.src=ev.target.result;
+  };
+  r.readAsDataURL(f);
+};
+function clearStanding(){
+  standingImg=null;
+  $('standing-thumb-wrap').style.display='none';
+  $('standing-opts').style.display='none';
+  $('standing-fi').value='';
+}
 const dz=$('dz');
 dz.ondragover=e=>{e.preventDefault();dz.classList.add('over')};
 dz.ondragleave=()=>dz.classList.remove('over');
-dz.ondrop=e=>{e.preventDefault();dz.classList.remove('over');loadFiles([...e.dataTransfer.files])};
+dz.ondrop=e=>{
+  e.preventDefault();dz.classList.remove('over');
+  const sorted=[...e.dataTransfer.files].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'}));
+  loadFiles(sorted);
+};
 
 function loadFiles(files){
   files.filter(f=>f.type.startsWith('image/')).forEach(f=>{
@@ -628,6 +690,11 @@ function buildSheet(dlScale){
   else if(vtxt==='sub') VPAD=vsubfont+vpadding;
   else if(vtxt==='both') VPAD=vnamefont+vsubfont+vpadding+6*dlScale;
 
+  // 대표 스탠딩 이미지 너비
+  const standW=standingImg?(Math.max(50,parseInt($('ostandw').value)||300)*dlScale):0;
+  const standAlign=$('ostandalign')?$('ostandalign').value:'bottom';
+  VPAD+=standW;
+
   const gridH=rows*cell+(rows-1)*gap;
   const W=VPAD+PAD+cols*cell+(cols-1)*gap+PAD;
   const H=PAD+gridH+PAD;
@@ -654,6 +721,20 @@ function buildSheet(dlScale){
   } else if(vtxt==='both'){
     if(cname) drawVerticalText(ctx,cname, PAD+vnamefont/2, gridTop, vnamefont,'700',lcColor,1);
     if(csub)  drawVerticalText(ctx,csub,  PAD+vnamefont+6+vsubfont/2, gridTop, vsubfont,'400',lcColor,0.55);
+  }
+
+  // ── 대표 스탠딩 이미지 ──
+  if(standingImg&&standW>0){
+    // 비율 유지하며 standW 너비에 맞춤
+    const sRatio=standingImg.width/standingImg.height;
+    const sW=standW;
+    const sH=sW/sRatio;
+    const sX=VPAD-standW; // 그리드 바로 왼쪽
+    let sY;
+    if(standAlign==='bottom') sY=H-PAD-sH;
+    else if(standAlign==='top') sY=PAD;
+    else sY=(H-sH)/2; // center
+    ctx.drawImage(standingImg,sX,sY,sW,sH);
   }
 
   // ── 셀 ──
@@ -719,6 +800,7 @@ function resetAll(){
   $('q-cnt').textContent='0';
   $('cols-preview').textContent='—';
   $('fi').value='';
+  clearStanding();
 }
 </script>
 </body>
