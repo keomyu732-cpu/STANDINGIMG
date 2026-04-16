@@ -61,6 +61,13 @@ input:focus,select:focus{border-color:#888}
 #final-out{display:none}
 #final-canvas{display:block;max-width:100%;border:1px solid #ddd;border-radius:8px;margin-top:8px}
 .field-note{font-size:10px;color:#bbb;margin-top:3px}
+.cc-face-item{border:1.5px solid #e8e5e0;border-radius:7px;overflow:hidden;cursor:pointer;background:#faf9f7;transition:border-color .15s}
+.cc-face-item.sel{border-color:#222}
+.cc-face-item img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.cc-face-label{font-size:9px;padding:2px 4px;text-align:center;background:#fff;border-top:1px solid #f0ede8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-char-btn{font-size:11px;padding:4px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff}
+.cc-char-btn:hover{background:#f5f5f5}
+.cc-char-btn.sel{background:#222;color:#fff;border-color:#222}
 </style>
 </head>
 <body>
@@ -82,6 +89,45 @@ input:focus,select:focus{border-color:#888}
   </div>
   <input type="file" id="fi" accept="image/*" multiple style="display:none">
   <div class="thumbs" id="thumbs"></div>
+
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0ede8">
+    <p class="sec" style="margin-bottom:6px">코코포리아에서 불러오기 (선택)</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:2;min-width:160px">
+        <label>룸 코드 또는 URL</label>
+        <input type="text" id="cc-room" placeholder="https://ccfolia.com/rooms/XXXXX 또는 XXXXX">
+      </div>
+      <div style="flex:1;min-width:100px">
+        <label>캐릭터 이름 <span style="color:#cc3366;font-size:10px">필수</span></label>
+        <div style="display:flex;gap:5px;align-items:center;margin-top:2px">
+          <input type="text" id="cc-name" placeholder="홍길동, 김무지 …" style="flex:1">
+          <label style="font-size:10px;color:#888;display:flex;align-items:center;gap:3px;white-space:nowrap;margin:0">
+            <input type="checkbox" id="cc-exact" style="width:auto"> 완전일치
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-s" onclick="ccLoad()" id="cc-load-btn" style="flex-shrink:0">불러오기</button>
+    </div>
+    <div id="cc-status" style="font-size:11px;color:#aaa;margin-top:5px;display:none"></div>
+
+    <!-- 캐릭터 선택 -->
+    <div id="cc-char-area" style="display:none;margin-top:8px">
+      <label>캐릭터 선택</label>
+      <div id="cc-char-list" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px"></div>
+    </div>
+
+    <!-- 스탠딩 목록 -->
+    <div id="cc-faces-area" style="display:none;margin-top:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <label id="cc-faces-title">스탠딩 목록</label>
+        <div style="display:flex;gap:5px">
+          <button class="btn" style="font-size:10px;padding:2px 8px" onclick="ccSelectAll()">전체 선택</button>
+          <button class="btn btn-p" style="font-size:10px;padding:2px 8px" onclick="ccAddSelected()">선택 항목 에디터로 불러오기</button>
+        </div>
+      </div>
+      <div id="cc-faces-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:5px"></div>
+    </div>
+  </div>
 </div>
 
 <div class="card" id="ed-card" style="display:none">
@@ -401,7 +447,9 @@ function openEditor(idx,keepSel){
   dragState=DS.NONE;drawOv();updateApplyBar();
   $('ed-title').textContent=`② 얼굴 영역 드래그 선택 (${idx+1}/${images.length})`;
   $('next-btn').style.display=idx<images.length-1?'block':'none';
-  $('ed-card').style.display='block';$('face-lbl').value='';
+  $('ed-card').style.display='block';
+  // 코코포리아 라벨 자동 입력
+  $('face-lbl').value=images[idx].ccLabel||'';
   if(keepSel&&sel.valid)updPrev();
 }
 
@@ -476,7 +524,8 @@ function applyToAll(){
     const cv=document.createElement('canvas');
     cv.width=sel.w*imgScale.x;cv.height=sel.h*imgScale.y;
     cv.getContext('2d').drawImage(d.img,sel.x*imgScale.x,sel.y*imgScale.y,cv.width,cv.height,0,0,cv.width,cv.height);
-    queue.push({canvas:cv,label:''});
+    // 코코포리아에서 불러온 이미지면 ccLabel 자동 사용
+    queue.push({canvas:cv, label:d.ccLabel||''});
   });
   lastSel={...sel, scaleX:imgScale.x, scaleY:imgScale.y, srcW:cur.w, srcH:cur.h};
   $('apply-last-btn').style.display='block';
@@ -787,6 +836,178 @@ function downloadSheet(scale){
   buildSheet(scale);
 }
 
+// ── 코코포리아 스탠딩 불러오기 ──
+const CC_API_KEY='AIzaSyAMlcPs4ekVSBdzpRdEloqQ8lIgP9lEnRI';
+const CC_PROJECT='ccfolia-160aa';
+let ccToken=null;
+let ccSelectedFaces=new Set();
+let ccCurrentFaces=[];
+
+function ccStatus(msg,color){
+  const el=$('cc-status');
+  el.style.display=msg?'block':'none';
+  el.style.color=color||'#aaa';
+  el.textContent=msg;
+}
+
+async function ccGetToken(){
+  const resp=await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${CC_API_KEY}`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})}
+  );
+  const data=await resp.json();
+  if(!data.idToken) throw new Error('토큰 발급 실패: '+JSON.stringify(data));
+  return data.idToken;
+}
+
+async function ccFetch(path){
+  if(!ccToken) ccToken=await ccGetToken();
+  const resp=await fetch(
+    `https://firestore.googleapis.com/v1/projects/${CC_PROJECT}/databases/(default)/documents/${path}`,
+    {headers:{'Authorization':'Bearer '+ccToken}}
+  );
+  if(resp.status===401){ccToken=null;return ccFetch(path);}
+  return resp.json();
+}
+
+async function ccLoad(){
+  const raw=$('cc-room').value.trim();
+  if(!raw){alert('룸 코드 또는 URL을 입력해주세요');return;}
+  const nameFilter=$('cc-name').value.trim();
+  if(!nameFilter){alert('캐릭터 이름을 입력해주세요!\n(NPC 스포 방지를 위해 이름 입력이 필수예요)');return;}
+  const match=raw.match(/([A-Za-z0-9_-]{5,20})(?:\s|$|\/)/)||raw.match(/([A-Za-z0-9_-]{5,20})$/);
+  const roomId=match?match[1]:raw;
+  if(!roomId){alert('룸 ID를 찾을 수 없어요');return;}
+
+  const btn=$('cc-load-btn');
+  btn.disabled=true;btn.textContent='불러오는 중...';
+  ccStatus('코코포리아에 연결 중...','#aaa');
+  $('cc-char-area').style.display='none';
+  $('cc-faces-area').style.display='none';
+
+  try{
+    let docs=[],pageToken='';
+    do{
+      const url=`rooms/${roomId}/characters?pageSize=100`+(pageToken?`&pageToken=${pageToken}`:'');
+      const data=await ccFetch(url);
+      if(data.error) throw new Error(data.error.message);
+      (data.documents||[]).forEach(d=>docs.push(d));
+      pageToken=data.nextPageToken||'';
+    }while(pageToken);
+
+    if(!docs.length){ccStatus('캐릭터가 없어요','#cc3366');return;}
+
+    // 스탠딩 있는 캐릭터만 필터
+    const nameFilter=$('cc-name').value.trim().toLowerCase();
+    const exactMatch=$('cc-exact').checked;
+    const chars=docs
+      .filter(d=>(d.fields?.faces?.arrayValue?.values||[]).length>0)
+      .filter(d=>{
+        if(!nameFilter) return true;
+        const name=(d.fields?.name?.stringValue||'').toLowerCase();
+        return nameFilter.split(/[,，]+/).map(n=>n.trim()).filter(Boolean).some(n=>{
+          return exactMatch ? name===n : name.includes(n);
+        });
+      })
+      .map(d=>({name:d.fields?.name?.stringValue||'이름없음', faces:(d.fields?.faces?.arrayValue?.values||[]).map(v=>({label:v.mapValue.fields.label?.stringValue||'', url:v.mapValue.fields.iconUrl?.stringValue||''})).filter(f=>f.url)}));
+
+    if(!chars.length){
+      const msg=nameFilter?`"${nameFilter}" 이름의 스탠딩 캐릭터가 없어요`:'스탠딩이 있는 캐릭터가 없어요';
+      ccStatus(msg,'#cc3366');return;
+    }
+
+    ccStatus(`캐릭터 ${chars.length}명 로드됐어요 — 캐릭터를 선택하세요`,'#2a6dd9');
+    renderCCChars(chars);
+    // 딱 1명이면 바로 faces 표시
+    if(chars.length===1) renderCCFaces(chars[0]);
+  } catch(e){
+    ccStatus('오류: '+e.message,'#cc3366');
+  } finally{
+    btn.disabled=false;btn.textContent='불러오기';
+  }
+}
+
+function renderCCChars(chars){
+  const list=$('cc-char-list');list.innerHTML='';
+  $('cc-char-area').style.display='block';
+  chars.forEach((c,i)=>{
+    const btn=document.createElement('button');
+    btn.className='cc-char-btn';
+    btn.textContent=c.name;
+    btn.onclick=()=>{
+      document.querySelectorAll('.cc-char-btn').forEach(b=>b.classList.remove('sel'));
+      btn.classList.add('sel');
+      renderCCFaces(c);
+    };
+    list.appendChild(btn);
+  });
+}
+
+function renderCCFaces(char){
+  ccCurrentFaces=char.faces;
+  ccSelectedFaces=new Set(char.faces.map((_,i)=>i)); // 기본 전체 선택
+  $('cc-faces-title').textContent=`${char.name} 스탠딩 (${char.faces.length}개)`;
+  $('cc-faces-area').style.display='block';
+  const list=$('cc-faces-list');list.innerHTML='';
+  char.faces.forEach((f,i)=>{
+    const item=document.createElement('div');
+    item.className='cc-face-item sel';
+    item.onclick=()=>{
+      if(ccSelectedFaces.has(i)){ccSelectedFaces.delete(i);item.classList.remove('sel');}
+      else{ccSelectedFaces.add(i);item.classList.add('sel');}
+    };
+    const img=document.createElement('img');
+    img.src=f.url;img.alt=f.label;img.loading='lazy';
+    const lbl=document.createElement('div');
+    lbl.className='cc-face-label';lbl.textContent=f.label||'(이름없음)';
+    item.append(img,lbl);list.appendChild(item);
+  });
+}
+
+function ccSelectAll(){
+  ccCurrentFaces.forEach((_,i)=>ccSelectedFaces.add(i));
+  document.querySelectorAll('.cc-face-item').forEach(el=>el.classList.add('sel'));
+}
+
+async function ccAddSelected(){
+  if(!ccCurrentFaces.length){alert('캐릭터를 먼저 선택해주세요');return;}
+  if(!ccSelectedFaces.size){alert('추가할 스탠딩을 선택해주세요');return;}
+
+  const btn=document.querySelector('[onclick="ccAddSelected()"]');
+  btn.disabled=true;btn.textContent='로딩 중...';
+  ccStatus('이미지 불러오는 중...','#aaa');
+
+  let added=0;
+  const selected=[...ccSelectedFaces].sort((a,b)=>a-b);
+  for(const i of selected){
+    const f=ccCurrentFaces[i];
+    try{
+      const img=await urlToImg(f.url);
+      images.push({img, name:f.label||`face_${i}`, src:f.url, w:img.width, h:img.height, ccLabel:f.label||''});
+      added++;
+    }catch(e){console.warn('이미지 로드 실패:',f.url,e);}
+  }
+
+  if(added>0){
+    renderThumbs();
+    openEditor(images.length-added); // 첫 번째 불러온 이미지 에디터로 열기
+    ccStatus(`${added}개 불러왔어요 — 에디터에서 크롭 후 큐에 추가하세요`,'#2a6dd9');
+  } else {
+    ccStatus('이미지 로드에 실패했어요 (CORS 오류일 수 있어요)','#cc3366');
+  }
+  btn.disabled=false;btn.textContent='선택 항목 큐에 추가';
+}
+
+function urlToImg(url){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>resolve(img);
+    img.onerror=()=>reject(new Error('로드실패'));
+    img.src=url;
+  });
+}
+
 function resetAll(){
   if(!confirm('전체 초기화하시겠어요?\n업로드한 이미지와 큐가 모두 삭제됩니다.'))return;
   images=[];curIdx=0;queue=[];
@@ -801,6 +1022,11 @@ function resetAll(){
   $('cols-preview').textContent='—';
   $('fi').value='';
   clearStanding();
+  $('cc-room').value='';
+  $('cc-char-area').style.display='none';
+  $('cc-faces-area').style.display='none';
+  ccStatus('','');
+  ccToken=null;ccSelectedFaces=new Set();ccCurrentFaces=[];
 }
 </script>
 </body>
