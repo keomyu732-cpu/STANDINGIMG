@@ -153,6 +153,10 @@ input:focus,select:focus{border-color:#888}
       <div>
         <label>라벨 (셀 내부 표시)</label>
         <input type="text" id="face-lbl" placeholder="@이름, 자신만만 …">
+        <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px;color:#888;cursor:pointer">
+          <input type="checkbox" id="use-filename" style="width:auto;margin:0">
+          파일명을 라벨로 사용
+        </label>
       </div>
       <div>
         <label>비율 고정</label>
@@ -365,6 +369,16 @@ $('fi').onchange=e=>{
   loadFiles(sorted);
 };
 
+// 파일명→라벨 체크박스 토글 시 현재 에디터 라벨 즉시 반영
+$('use-filename').onchange=()=>{
+  if(images[curIdx]){
+    const useFilename=$('use-filename').checked;
+    const lbl=$('face-lbl');
+    lbl.value=images[curIdx].ccLabel||(useFilename?(images[curIdx].fileName||''):'');
+    lbl.disabled=useFilename&&!images[curIdx].ccLabel;
+  }
+};
+
 // 대표 스탠딩 이미지
 $('standing-fi').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
@@ -400,20 +414,25 @@ dz.ondrop=e=>{
   loadFiles(sorted);
 };
 
-function loadFiles(files){
-  files.filter(f=>f.type.startsWith('image/')).forEach(f=>{
-    const r=new FileReader();
-    r.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        images.push({img,name:f.name.replace(/\.[^.]+$/,''),src:ev.target.result,w:img.width,h:img.height});
-        renderThumbs();
-        if(images.length===1)openEditor(0);
+async function loadFiles(files){
+  const imgs=files.filter(f=>f.type.startsWith('image/'));
+  for(const f of imgs){
+    await new Promise(resolve=>{
+      const r=new FileReader();
+      r.onload=ev=>{
+        const img=new Image();
+        img.onload=()=>{
+          const rawName=f.name.replace(/\.[^.]+$/,'');
+          images.push({img, name:rawName, src:ev.target.result, w:img.width, h:img.height, fileName:rawName});
+          renderThumbs();
+          if(images.length===1)openEditor(0);
+          resolve();
+        };
+        img.src=ev.target.result;
       };
-      img.src=ev.target.result;
-    };
-    r.readAsDataURL(f);
-  });
+      r.readAsDataURL(f);
+    });
+  }
 }
 
 function renderThumbs(){
@@ -448,8 +467,10 @@ function openEditor(idx,keepSel){
   $('ed-title').textContent=`② 얼굴 영역 드래그 선택 (${idx+1}/${images.length})`;
   $('next-btn').style.display=idx<images.length-1?'block':'none';
   $('ed-card').style.display='block';
-  // 코코포리아 라벨 자동 입력
-  $('face-lbl').value=images[idx].ccLabel||'';
+  // ccLabel 또는 파일명 자동 입력
+  const useFilename=$('use-filename').checked;
+  $('face-lbl').value=images[idx].ccLabel||(useFilename?(images[idx].fileName||''):'');
+  $('face-lbl').disabled=useFilename&&!images[idx].ccLabel;
   if(keepSel&&sel.valid)updPrev();
 }
 
@@ -519,13 +540,14 @@ function updateApplyBar(){
 function applyToAll(){
   if(!sel.valid)return;
   const cur=images[curIdx];
+  const useFilename=$('use-filename').checked;
   images.forEach((d,i)=>{
     if(d.w!==cur.w||d.h!==cur.h)return;
     const cv=document.createElement('canvas');
     cv.width=sel.w*imgScale.x;cv.height=sel.h*imgScale.y;
     cv.getContext('2d').drawImage(d.img,sel.x*imgScale.x,sel.y*imgScale.y,cv.width,cv.height,0,0,cv.width,cv.height);
-    // 코코포리아에서 불러온 이미지면 ccLabel 자동 사용
-    queue.push({canvas:cv, label:d.ccLabel||''});
+    const lbl=d.ccLabel||(useFilename?(d.fileName||''):'');
+    queue.push({canvas:cv,label:lbl});
   });
   lastSel={...sel, scaleX:imgScale.x, scaleY:imgScale.y, srcW:cur.w, srcH:cur.h};
   $('apply-last-btn').style.display='block';
@@ -538,10 +560,13 @@ function addQ(){
   const cv=document.createElement('canvas');
   cv.width=sel.w*imgScale.x;cv.height=sel.h*imgScale.y;
   cv.getContext('2d').drawImage(img,sel.x*imgScale.x,sel.y*imgScale.y,cv.width,cv.height,0,0,cv.width,cv.height);
-  queue.push({canvas:cv,label:$('face-lbl').value||''});
+  const useFilename=$('use-filename').checked;
+  const lbl=images[curIdx].ccLabel||(useFilename?(images[curIdx].fileName||''):($('face-lbl').value||''));
+  queue.push({canvas:cv,label:lbl});
   lastSel={...sel, scaleX:imgScale.x, scaleY:imgScale.y, srcW:images[curIdx].w, srcH:images[curIdx].h};
   $('apply-last-btn').style.display='block';
-  renderQ();updateColsPreview();$('face-lbl').value='';
+  renderQ();updateColsPreview();
+  if(!useFilename) $('face-lbl').value='';
 }
 
 function applyLastSel(){
